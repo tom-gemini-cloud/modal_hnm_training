@@ -1,0 +1,16 @@
+# Core ML and data processing
+torch>=2.0.0
+polars>=1.5.0
+
+# Progress bars for training
+tqdm
+
+# Modal deployment (optional - only needed for cloud training)
+modal
+
+# Development and optional dependencies
+numpy  # Used conditionally in set_all_seeds for reproducibility
+wandb  # Experiment tracking (Modal image also installs this)
+
+# W&B Monitoring
+wandb

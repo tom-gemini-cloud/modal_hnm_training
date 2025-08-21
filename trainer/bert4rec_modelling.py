@@ -729,6 +729,156 @@ def evaluate_next_item_topk(
     return recall, ndcg
 
 
+@torch.no_grad()
+def evaluate_next_item_at_ks(
+    model: BERT4RecModel,
+    loader: DataLoader,
+    device: torch.device,
+    ks: Tuple[int, ...] = (5, 10, 20, 50),
+) -> Dict[str, float]:
+    """
+    Compute Accuracy@1, Precision@K, Recall@K, F1@K, and NDCG@K for multiple K.
+
+    Assumes one relevant item per example (the last item). For this case:
+    - accuracy@1 equals recall@1 (hit rate at 1)
+    - precision@K is 1/K if the target is within top-K, else 0
+    - recall@K is 1 if target in top-K else 0 (hit rate)
+    - F1@K is derived from averaged precision and recall
+    """
+    model.eval()
+    ks_sorted = sorted(set(int(k) for k in ks))
+    max_k = int(max(ks_sorted)) if ks_sorted else 1
+
+    totals = 0
+    hits_at_k = {k: 0 for k in ks_sorted}
+    ndcg_at_k = {k: 0.0 for k in ks_sorted}
+    precision_sum_at_k = {k: 0.0 for k in ks_sorted}
+
+    acc1_hits = 0
+
+    for batch in tqdm(loader, desc="Evaluating multi-K", leave=False):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        labels = batch["labels"].to(device)
+
+        logits = model(input_ids, attention_mask)  # (B, L, V)
+        B, L, V = logits.size()
+
+        # Compute top max_k indices for each position
+        top_scores, top_ids = torch.topk(logits, k=max_k, dim=-1)  # (B, L, max_k)
+
+        for b in range(B):
+            label_pos = (labels[b] != -100).nonzero(as_tuple=False).squeeze(-1)
+            if label_pos.numel() == 0:
+                continue
+            p = int(label_pos[-1].item())
+            target = int(labels[b, p].item())
+
+            candidates = top_ids[b, p].tolist()  # length max_k
+            totals += 1
+
+            # Accuracy@1
+            if candidates[0] == target:
+                acc1_hits += 1
+
+            # Rank if present
+            try:
+                rank = candidates.index(target) + 1  # 1-based
+            except ValueError:
+                rank = None
+
+            for k in ks_sorted:
+                if rank is not None and rank <= k:
+                    hits_at_k[k] += 1
+                    ndcg_at_k[k] += 1.0 / math.log2(rank + 1)
+                    precision_sum_at_k[k] += 1.0 / k
+                else:
+                    # no contribution
+                    pass
+
+    # Aggregate
+    results: Dict[str, float] = {}
+    accuracy1 = acc1_hits / max(1, totals)
+    results["accuracy@1"] = accuracy1
+
+    for k in ks_sorted:
+        recall_k = hits_at_k[k] / max(1, totals)
+        precision_k = precision_sum_at_k[k] / max(1, totals)
+        ndcg_k = ndcg_at_k[k] / max(1, totals)
+        # F1 from averaged precision and recall
+        denom = (precision_k + recall_k)
+        f1_k = 2 * precision_k * recall_k / denom if denom > 0 else 0.0
+
+        results[f"recall@{k}"] = recall_k
+        results[f"precision@{k}"] = precision_k
+        results[f"f1@{k}"] = f1_k
+        results[f"ndcg@{k}"] = ndcg_k
+
+    return results
+
+
+# -----------------------------
+# Simple end-to-end entrypoint for Modal/local use
+# -----------------------------
+
+def train(
+    train_uri: str,                 # glob: "/data/modelling_data/*.parquet" (Modal) or "./data/modelling_data/*.parquet" (local)
+    val_uri: str | None,            # optional; you can ignore and just split internally
+    out_dir: str,                   # e.g., "/data/out"
+    epochs: int = 10,
+    batch_size: int = 256,
+    max_len: int = 200,             # keep consistent with model/sequence opts
+    lr: float = 1e-3,
+) -> None:
+    # 1) Load transactions
+    df = pl.read_parquet(train_uri)
+
+    # Expect columns: customer_id, article_id, t_dat (date), optionally price, sales_channel_id
+    # 2) Prepare sequences
+    opts = SequenceOptions(max_len=max_len)
+    prepared = prepare_sequences_with_polars(df, user_segments=None, options=opts)
+
+    # 3) Build dataloaders
+    train_loader, valid_loader, eval_loader = build_dataloaders_for_bert4rec(
+        prepared, batch_size=batch_size, valid_split=0.1, num_workers=0
+    )
+
+    # 4) Model + config
+    model = BERT4RecModel(
+        vocab_size=prepared.registry.vocab_size,
+        max_len=max_len,
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    cfg = TrainConfig(batch_size=batch_size, lr=lr, n_epochs=epochs)
+
+    # 5) Train
+    train_bert4rec(model, train_loader, valid_loader, cfg, device)
+
+    # 6) Evaluate next-item @20 (optional)
+    recall20, ndcg20 = evaluate_next_item_topk(
+        model, eval_loader, device, prepared.registry, topk=20
+    )
+    print(f"Recall@20={recall20:.4f}  NDCG@20={ndcg20:.4f}")
+
+    # 7) Save artefacts
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "config": dataclasses.asdict(cfg),
+            "vocab_size": prepared.registry.vocab_size,
+            "registry": dataclasses.asdict(prepared.registry),
+            "metrics": {"recall@20": recall20, "ndcg@20": ndcg20},
+        },
+        out / "checkpoint.pt",
+    )
+    # Optionally save id maps for inspection
+    (out / "id2item.txt").write_text("\n".join(
+        f"{k}\t{v}" for k, v in sorted(prepared.registry.id2item.items())
+    ))
+
+
 # -----------------------------
 # Convenience: end-to-end helper
 # -----------------------------

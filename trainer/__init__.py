@@ -22,6 +22,7 @@ from .bert4rec_modelling import (
     set_all_seeds,
     prepare_sequences_with_polars,
     train_bert4rec,
+    train,  # Main end-to-end training function
     evaluate_mlm_loss,
     evaluate_next_item_topk,
     build_dataloaders_for_bert4rec,
@@ -29,9 +30,6 @@ from .bert4rec_modelling import (
     # Learning rate scheduler
     WarmupLinearSchedule,
 )
-
-# Alias for compatibility with modal training script
-train = train_bert4rec
 
 __all__ = [
     "TokenRegistry",
@@ -45,7 +43,7 @@ __all__ = [
     "set_all_seeds",
     "prepare_sequences_with_polars",
     "train_bert4rec",
-    "train",  # alias
+    "train",  # Main end-to-end training function
     "evaluate_mlm_loss",
     "evaluate_next_item_topk", 
     "build_dataloaders_for_bert4rec",
