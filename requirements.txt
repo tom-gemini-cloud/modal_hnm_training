@@ -1,6 +1,7 @@
 # Core ML and data processing
 torch>=2.0.0
 polars>=1.5.0
+numpy>=1.21.0
 
 # Progress bars for training
 tqdm
@@ -8,9 +9,15 @@ tqdm
 # Modal deployment (optional - only needed for cloud training)
 modal
 
-# Development and optional dependencies
-numpy  # Used conditionally in set_all_seeds for reproducibility
-wandb  # Experiment tracking (Modal image also installs this)
+# Model evaluation and analysis
+pandas>=1.3.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+scikit-learn>=1.0.0
 
-# W&B Monitoring
-wandb
+# Jupyter notebook support
+jupyter
+ipykernel
+
+# Development and optional dependencies
+wandb  # Experiment tracking (Modal image also installs this)
