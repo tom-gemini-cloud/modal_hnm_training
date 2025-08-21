@@ -144,26 +144,28 @@ def plot_metrics(metrics_df, output_dir, vocab_size):
     """Plot ROC and Precision–Recall curves with corrected random baselines."""
     baseline_df = calculate_random_baseline(vocab_size, metrics_df['K'].tolist())
 
-    # --- ROC Curve (TPR = Recall, FPR ≈ K/|V|) ---
-    fig1, ax1 = plt.subplots(1, 1, figsize=(10, 8))
-    model_fpr = [k / vocab_size for k in metrics_df['K']]
+    # --- ROC Curve (TPR = Recall, FPR ≈ K / |catalogue|) ---
+    fig, ax = plt.subplots(figsize=(10, 8))
 
-    ax1.plot(model_fpr, metrics_df['Recall'], 'bo-', linewidth=3, markersize=8, label='BERT4Rec Model')
-    # Random classifier diagonal
-    ax1.plot([0, 1], [0, 1], 'k:', alpha=0.6, label='Random Classifier')
+    fpr = [k / vocab_size for k in metrics_df['K']]
+    tpr = metrics_df['Recall'].values
 
-    ax1.set_title('ROC Curve: Model vs Random', fontsize=16, fontweight='bold')
-    ax1.set_xlabel('False Positive Rate (≈ K / Catalogue Size)', fontsize=12)
-    ax1.set_ylabel('True Positive Rate (Recall)', fontsize=12)
-    ax1.legend(fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    ax1.set_xlim([0, max(model_fpr) * 1.1])
-    ax1.set_ylim([0, max(metrics_df['Recall']) * 1.1])
+    ax.plot(fpr, tpr, 'bo-', linewidth=3, markersize=8, label='BERT4Rec Model')
+
+    # only the 45° random diagonal
+    xmax = max(fpr) * 1.1
+    ax.plot([0, xmax], [0, xmax], ':', color='0.2', label='Random Classifier')
+
+    ax.set_xlim(0, xmax)
+    ax.set_ylim(0, max(tpr) * 1.1)
+    ax.set_title('ROC Curve: Model vs Random', fontsize=16, fontweight='bold')
+    ax.set_xlabel('False Positive Rate (≈ K / Catalogue Size)')
+    ax.set_ylabel('True Positive Rate (Recall)')
+    ax.legend(fontsize=11)
+    ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    roc_file = os.path.join(output_dir, 'roc_curve.png')
-    plt.savefig(roc_file, dpi=300, bbox_inches='tight')
-    print(f"ROC curve saved to: {roc_file}")
+    plt.savefig(os.path.join(output_dir, 'roc_curve.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
     # --- Precision–Recall Curve ---
