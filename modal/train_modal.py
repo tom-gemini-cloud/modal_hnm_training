@@ -114,8 +114,8 @@ def _run_bert4rec_impl(
     from tqdm.auto import tqdm
     import sys
     import os
-    
-    # Optional: Weights & Biases monitoring
+
+    # Weights & Biases monitoring - Optional
     use_wandb = bool(os.environ.get("WANDB_API_KEY"))
     if use_wandb:
         try:
